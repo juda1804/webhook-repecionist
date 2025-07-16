@@ -17,6 +17,8 @@ Incoming Email → AWS SES → S3 Storage → Lambda Function → HTTP Webhook �
 - **Domain Filtering**: Restrict email processing to allowed domains
 - **Retry Logic**: Automatic retry with exponential backoff
 - **Infrastructure as Code**: Complete Terraform configuration
+- **Build Automation**: Automated Lambda packaging with dependency validation
+- **Testing Suite**: Comprehensive end-to-end testing scripts
 - **Monitoring**: CloudWatch logs and metrics
 
 ## 📋 Prerequisites
@@ -79,22 +81,27 @@ token3._domainkey.yourdomain.com → token3.dkim.amazonses.com
 
 ### 4. Test Your Setup
 
-Start the test webhook receiver:
+Use the automated testing script for comprehensive validation:
 
 ```bash
-# Install test dependencies (if needed)
-pip3 install -r testing/requirements.txt
+# Basic test (monitors Lambda logs)
+./scripts/test-email-processing.sh
 
-# Start test receiver
+# Test with local webhook receiver
+./scripts/test-email-processing.sh --webhook-port 8080
+
+# Test with signature validation
+./scripts/test-email-processing.sh --webhook-port 8080 --webhook-secret your-webhook-secret
+
+# Manual test with local receiver
 python3 testing/test-webhook-receiver.py --port 8080 --secret your-webhook-secret
-
-# In another terminal, use ngrok to expose your local server
-ngrok http 8080
 ```
 
-Update your `webhook_url` in `terraform.tfvars` to the ngrok URL and redeploy.
-
-Send a test email to `webhook@yourdomain.com` and watch the output!
+The test script will:
+- Send a test email via AWS SES
+- Monitor Lambda logs for processing
+- Validate webhook delivery (if using local receiver)
+- Generate a comprehensive test report
 
 ## 📁 Project Structure
 
@@ -109,7 +116,10 @@ Send a test email to `webhook@yourdomain.com` and watch the output!
 │   ├── main.tf                        # Infrastructure configuration
 │   └── terraform.tfvars.example       # Configuration template
 ├── scripts/
-│   └── deploy.sh                      # Deployment script
+│   ├── deploy.sh                      # Deployment script
+│   ├── build-lambda-package.sh       # Lambda packaging with validation
+│   ├── test-email-processing.sh      # End-to-end email testing
+│   └── validate-lambda-dependencies.sh # Dependency validation
 └── testing/
     └── test-webhook-receiver.py       # Test webhook receiver
 ```
@@ -217,22 +227,61 @@ aws s3 ls s3://your-bucket-name/emails/ --recursive
 ### Common Issues
 
 1. **DNS Not Propagated**: Wait up to 72 hours for DNS changes
-2. **Domain Not Verified**: Check TXT record is correctly added
-3. **Lambda Errors**: Check CloudWatch logs for detailed error messages
-4. **Webhook Timeouts**: Ensure your endpoint responds within 30 seconds
+2. **Domain Not Verified**: Check TXT record is correctly added  
+3. **Lambda Dependency Errors**: Use `./scripts/validate-lambda-dependencies.sh` to check package structure
+4. **Lambda Import Errors**: Rebuild package with `./scripts/build-lambda-package.sh --clean`
+5. **Webhook Timeouts**: Ensure your endpoint responds within 30 seconds
+6. **Email Processing Failures**: Run `./scripts/test-email-processing.sh` for diagnostics
+
+### Troubleshooting Commands
+
+```bash
+# Check Lambda package structure
+./scripts/build-lambda-package.sh --validate-only
+
+# Test complete email flow
+./scripts/test-email-processing.sh --webhook-port 8080
+
+# Validate deployed Lambda dependencies
+./scripts/validate-lambda-dependencies.sh prod-email-to-http-processor check
+
+# View recent Lambda logs
+aws logs tail /aws/lambda/prod-email-to-http-processor --follow --profile personal
+```
 
 ## 🔄 Updating the Solution
 
 To update Lambda function code:
 
 ```bash
-# Update the Lambda function
-cd lambda/python
-# Make your changes to lambda_function.py
-
-# Redeploy
-cd ../../
+# Option 1: Full rebuild with deploy script
 ./scripts/deploy.sh
+
+# Option 2: Manual rebuild and deploy
+./scripts/build-lambda-package.sh --clean
+cd terraform && terraform apply
+
+# Validate Lambda package structure
+./scripts/build-lambda-package.sh --validate-only
+
+# Validate deployed Lambda dependencies  
+./scripts/validate-lambda-dependencies.sh prod-email-to-http-processor check
+```
+
+### Build Script Options
+
+```bash
+# Clean build from scratch
+./scripts/build-lambda-package.sh --clean
+
+# Build without reinstalling dependencies
+./scripts/build-lambda-package.sh --no-install
+
+# Validate existing package only
+./scripts/build-lambda-package.sh --validate-only
+
+# Custom output path
+./scripts/build-lambda-package.sh --output-path /custom/path/lambda.zip
 ```
 
 ## 🧹 Cleanup
