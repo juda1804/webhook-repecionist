@@ -1,0 +1,18 @@
+# AWS SES + Lambda Email-to-HTTP Bridge Configuration
+# Copy this file to terraform.tfvars and update with your values
+
+# AWS Configuration
+aws_region = "us-east-1"
+
+# Domain Configuration
+domain_name = "yourdomain.com"
+
+# Webhook Configuration
+webhook_url    = "https://your-api.com/webhook/email"
+webhook_secret = "your-secure-webhook-secret-here"
+
+# Email Filtering (optional)
+allowed_domains = "yourdomain.com,anotherdomain.com"
+
+# Environment
+environment = "prod" 

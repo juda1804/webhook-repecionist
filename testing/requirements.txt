@@ -1,0 +1,2 @@
+# Testing requirements for webhook receiver
+# No additional dependencies needed - uses only Python standard library
