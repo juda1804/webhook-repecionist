@@ -13,9 +13,9 @@ if [ ! -f "terraform/terraform.tfvars" ]; then
 fi
 
 # Check if AWS CLI is configured
-if ! aws sts get-caller-identity &> /dev/null; then
-    echo "❌ Error: AWS CLI not configured or credentials invalid"
-    echo "Please run 'aws configure' to set up your credentials"
+if ! aws sts get-caller-identity --profile personal &> /dev/null; then
+    echo "❌ Error: AWS CLI not configured or credentials invalid for 'personal' profile"
+    echo "Please run 'aws configure --profile personal' to set up your credentials"
     exit 1
 fi
 
@@ -30,18 +30,34 @@ echo "✅ Prerequisites check passed"
 echo "📦 Creating Lambda deployment package..."
 cd lambda/python
 
-# Install dependencies in a temporary directory
+# Clean up any existing package directory
 if [ -d "package" ]; then
     rm -rf package
 fi
+
+# Remove existing zip file if it exists
+if [ -f "../../terraform/lambda_function.zip" ]; then
+    rm -f ../../terraform/lambda_function.zip
+fi
+
+# Create temporary package directory
 mkdir package
 
-pip3 install -r requirements.txt -t package/
+# Install dependencies directly to package directory
+echo "Installing Python dependencies..."
+pip3 install -r requirements.txt -t package/ --no-cache-dir
+
+# Copy lambda function to package directory
 cp lambda_function.py package/
 
-# Create zip file
+# Create zip file from package directory contents
+echo "Creating Lambda ZIP package..."
 cd package
-zip -r ../../terraform/lambda_function.zip .
+zip -r ../../../terraform/lambda_function.zip . -x "*.pyc" "__pycache__/*"
+cd ..
+
+# Clean up temporary package directory
+rm -rf package
 cd ../../
 
 echo "✅ Lambda package created"
