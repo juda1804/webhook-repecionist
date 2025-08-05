@@ -1,0 +1,62 @@
+{
+  "version": "1.0",
+  "last_updated": "2025-01-20T00:00:00Z",
+  "domains": {
+    "example.com": {
+      "webhook_url": "https://api.example.com/webhook",
+      "webhook_secret": "your-webhook-secret-here",
+      "patterns": [
+        "*@example.com",
+        "webhook@example.com",
+        "support@example.com"
+      ],
+      "filters": {
+        "max_size_mb": 10,
+        "allowed_senders": ["*"],
+        "blocked_senders": [],
+        "blocked_domains": ["spam.com", "malware.net"],
+        "require_dkim": false,
+        "require_spf": false
+      },
+      "payload_format": "standard",
+      "custom_headers": {
+        "X-Source-Domain": "example.com",
+        "X-Environment": "production"
+      }
+    },
+    "company.org": {
+      "webhook_url": "https://company.org/api/webhooks/email",
+      "webhook_secret": "company-secret-key",
+      "patterns": [
+        "contact@company.org",
+        "billing@company.org",
+        "support@company.org"
+      ],
+      "filters": {
+        "max_size_mb": 5,
+        "allowed_senders": ["@trusted-partner.com", "@company.org"],
+        "blocked_senders": ["noreply@*", "marketing@*"],
+        "blocked_domains": [],
+        "require_dkim": true,
+        "require_spf": true
+      },
+      "payload_format": "custom",
+      "custom_headers": {
+        "X-Source-Domain": "company.org",
+        "Authorization": "Bearer company-api-token"
+      },
+      "retry_config": {
+        "max_retries": 5,
+        "timeout_seconds": 45
+      }
+    }
+  },
+  "global_settings": {
+    "default_max_retries": 3,
+    "default_timeout_seconds": 30,
+    "default_max_size_mb": 10,
+    "enable_detailed_logging": true,
+    "s3_backup_enabled": true,
+    "s3_backup_retention_days": 30
+  }
+}

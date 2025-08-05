@@ -4,15 +4,53 @@
 # AWS Configuration
 aws_region = "us-east-1"
 
-# Domain Configuration
-domain_name = "yourdomain.com"
-
-# Webhook Configuration
-webhook_url    = "https://your-api.com/webhook/email"
-webhook_secret = "your-secure-webhook-secret-here"
-
-# Email Filtering (optional)
-allowed_domains = "yourdomain.com,anotherdomain.com"
-
 # Environment
-environment = "prod" 
+environment = "prod"
+
+# ============================================
+# OPTION 1: DYNAMIC MULTI-DOMAIN CONFIGURATION
+# ============================================
+# Enable dynamic configuration from S3 (recommended for multiple domains)
+enable_dynamic_config = true
+
+# List of domains to configure for SES
+domains = [
+  "yourdomain.com",
+  "anotherdomain.com"
+]
+
+# S3 key for configuration file (optional, defaults to config/domains.json)
+config_s3_key = "config/domains.json"
+
+# ============================================
+# OPTION 2: SINGLE DOMAIN CONFIGURATION
+# ============================================
+# Use this for backward compatibility or simple single-domain setups
+# Set enable_dynamic_config = false and configure these variables:
+
+# enable_dynamic_config = false
+# domain_name = "yourdomain.com" 
+# webhook_url = "https://your-api.com/webhook/email"
+# webhook_secret = "your-secure-webhook-secret-here"
+# allowed_domains = "yourdomain.com"
+
+# ============================================
+# NOTES
+# ============================================
+# 
+# For DYNAMIC configuration (enable_dynamic_config = true):
+# 1. List your domains in the 'domains' variable above
+# 2. After deployment, use the management scripts to configure domains:
+#    ./scripts/add-domain-config.sh yourdomain.com https://api.example.com/webhook secret123
+# 3. Upload configuration to S3:
+#    ./scripts/upload-config.sh
+#
+# For SINGLE DOMAIN configuration (enable_dynamic_config = false):
+# 1. Set enable_dynamic_config = false
+# 2. Configure domain_name, webhook_url, webhook_secret, and allowed_domains
+# 3. Deploy with terraform apply
+#
+# The dynamic configuration approach is recommended for:
+# - Multiple domains with different webhook endpoints
+# - Different processing rules per domain  
+# - Ability to add/modify domains without redeployment 

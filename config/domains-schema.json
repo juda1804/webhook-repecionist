@@ -1,0 +1,161 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Domain Configuration Schema",
+  "description": "Schema for multi-domain email-to-webhook configuration",
+  "type": "object",
+  "required": ["version", "domains"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Configuration schema version"
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp of last configuration update"
+    },
+    "domains": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9]([a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])?\\.([a-zA-Z0-9]([a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])?)*$": {
+          "type": "object",
+          "required": ["webhook_url", "patterns"],
+          "properties": {
+            "webhook_url": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://",
+              "description": "Target webhook URL for this domain"
+            },
+            "webhook_secret": {
+              "type": "string",
+              "minLength": 8,
+              "description": "HMAC secret for webhook signature validation"
+            },
+            "patterns": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "pattern": "^[*a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+                "description": "Email patterns to match (supports wildcards)"
+              },
+              "description": "List of email patterns this domain should handle"
+            },
+            "filters": {
+              "type": "object",
+              "properties": {
+                "max_size_mb": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 25,
+                  "default": 10
+                },
+                "allowed_senders": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": ["*"]
+                },
+                "blocked_senders": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
+                },
+                "blocked_domains": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": []
+                },
+                "require_dkim": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "require_spf": {
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            },
+            "payload_format": {
+              "type": "string",
+              "enum": ["standard", "custom"],
+              "default": "standard",
+              "description": "Webhook payload format"
+            },
+            "custom_headers": {
+              "type": "object",
+              "patternProperties": {
+                "^[a-zA-Z][a-zA-Z0-9-]*$": {
+                  "type": "string"
+                }
+              },
+              "description": "Additional headers to include in webhook requests"
+            },
+            "retry_config": {
+              "type": "object",
+              "properties": {
+                "max_retries": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10,
+                  "default": 3
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "minimum": 5,
+                  "maximum": 300,
+                  "default": 30
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "Domain-specific configurations"
+    },
+    "global_settings": {
+      "type": "object",
+      "properties": {
+        "default_max_retries": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "default_timeout_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 30
+        },
+        "default_max_size_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25,
+          "default": 10
+        },
+        "enable_detailed_logging": {
+          "type": "boolean",
+          "default": true
+        },
+        "s3_backup_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "s3_backup_retention_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 30
+        }
+      }
+    }
+  }
+}

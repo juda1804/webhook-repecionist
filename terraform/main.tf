@@ -20,26 +20,47 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "domains" {
+  description = "List of domains to configure for email receiving"
+  type        = list(string)
+  default     = []
+}
+
 variable "domain_name" {
-  description = "Domain name for email receiving"
+  description = "Primary domain name for email receiving (backward compatibility)"
   type        = string
+  default     = ""
 }
 
 variable "webhook_url" {
-  description = "Target webhook URL"
+  description = "Target webhook URL (backward compatibility)"
   type        = string
+  default     = ""
 }
 
 variable "webhook_secret" {
-  description = "Webhook secret for signature validation"
+  description = "Webhook secret for signature validation (backward compatibility)"
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 variable "allowed_domains" {
-  description = "Comma-separated list of allowed domains"
+  description = "Comma-separated list of allowed domains (backward compatibility)"
   type        = string
   default     = ""
+}
+
+variable "enable_dynamic_config" {
+  description = "Enable dynamic configuration from S3"
+  type        = bool
+  default     = true
+}
+
+variable "config_s3_key" {
+  description = "S3 key for dynamic configuration file"
+  type        = string
+  default     = "config/domains.json"
 }
 
 variable "environment" {
@@ -51,6 +72,16 @@ variable "environment" {
 # S3 Bucket for email storage
 resource "aws_s3_bucket" "email_storage" {
   bucket = "${var.environment}-ses-email-storage-${random_id.bucket_suffix.hex}"
+}
+
+# S3 Bucket for dynamic configuration (when enabled)
+resource "aws_s3_bucket" "config_storage" {
+  count  = var.enable_dynamic_config ? 1 : 0
+  bucket = "${var.environment}-ses-email-config-${random_id.config_bucket_suffix.hex}"
+}
+
+resource "random_id" "config_bucket_suffix" {
+  byte_length = 4
 }
 
 resource "random_id" "bucket_suffix" {
@@ -87,6 +118,26 @@ resource "aws_s3_bucket_lifecycle_configuration" "email_storage_lifecycle" {
 
     noncurrent_version_expiration {
       noncurrent_days = 7
+    }
+  }
+}
+
+# Configuration for the config bucket
+resource "aws_s3_bucket_versioning" "config_storage_versioning" {
+  count  = var.enable_dynamic_config ? 1 : 0
+  bucket = aws_s3_bucket.config_storage[0].id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "config_storage_encryption" {
+  count  = var.enable_dynamic_config ? 1 : 0
+  bucket = aws_s3_bucket.config_storage[0].id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
     }
   }
 }
@@ -141,7 +192,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Effect = "Allow"
         Action = [
@@ -166,7 +217,15 @@ resource "aws_iam_role_policy" "lambda_policy" {
         ]
         Resource = "*"
       }
-    ]
+    ], var.enable_dynamic_config ? [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject"
+        ]
+        Resource = "${aws_s3_bucket.config_storage[0].arn}/*"
+      }
+    ] : [])
   })
 }
 
@@ -187,15 +246,22 @@ resource "aws_lambda_function" "email_processor" {
   timeout         = 60
 
   environment {
-    variables = {
-      TARGET_WEBHOOK_URL = var.webhook_url
-      WEBHOOK_SECRET     = var.webhook_secret
+    variables = merge({
       S3_BUCKET         = aws_s3_bucket.email_storage.bucket
-      ALLOWED_DOMAINS   = var.allowed_domains
       MAX_RETRIES       = "3"
       TIMEOUT_SECONDS   = "30"
       MAX_EMAIL_SIZE_MB = "10"
-    }
+      ENABLE_DYNAMIC_CONFIG = var.enable_dynamic_config ? "true" : "false"
+    }, var.enable_dynamic_config ? {
+      CONFIG_S3_BUCKET = aws_s3_bucket.config_storage[0].bucket
+      CONFIG_S3_KEY    = var.config_s3_key
+    } : {
+      # Backward compatibility environment variables
+      TARGET_WEBHOOK_URL = var.webhook_url
+      WEBHOOK_SECRET     = var.webhook_secret
+      DOMAIN_NAME        = var.domain_name
+      ALLOWED_DOMAINS    = var.allowed_domains  
+    })
   }
 
   depends_on = [
@@ -222,14 +288,21 @@ resource "aws_lambda_permission" "allow_ses" {
   source_account = data.aws_caller_identity.current.account_id
 }
 
-# SES Domain Identity
-resource "aws_ses_domain_identity" "domain" {
-  domain = var.domain_name
+# Determine all domains to configure
+locals {
+  all_domains = var.enable_dynamic_config ? var.domains : (var.domain_name != "" ? [var.domain_name] : [])
 }
 
-# SES Domain DKIM
-resource "aws_ses_domain_dkim" "domain_dkim" {
-  domain = aws_ses_domain_identity.domain.domain
+# SES Domain Identity for each domain
+resource "aws_ses_domain_identity" "domains" {
+  for_each = toset(local.all_domains)
+  domain   = each.key
+}
+
+# SES Domain DKIM for each domain
+resource "aws_ses_domain_dkim" "domains_dkim" {
+  for_each = toset(local.all_domains)
+  domain   = aws_ses_domain_identity.domains[each.key].domain
 }
 
 # SES Receipt Rule Set
@@ -237,11 +310,13 @@ resource "aws_ses_receipt_rule_set" "email_to_http" {
   rule_set_name = "${var.environment}-email-to-http-bridge"
 }
 
-# SES Receipt Rule
+# SES Receipt Rule for multi-domain support
 resource "aws_ses_receipt_rule" "email_processor_rule" {
-  name          = "process-emails"
+  name          = "process-emails-multi-domain"
   rule_set_name = aws_ses_receipt_rule_set.email_to_http.rule_set_name
-  recipients    = ["webhook@${var.domain_name}"]
+  recipients    = var.enable_dynamic_config ? 
+    flatten([for domain in local.all_domains : ["*@${domain}"]]) :
+    ["webhook@${var.domain_name}"]
   enabled       = true
   scan_enabled  = true
 
@@ -269,19 +344,24 @@ resource "aws_ses_active_receipt_rule_set" "active" {
 data "aws_caller_identity" "current" {}
 
 # Outputs
-output "domain_verification_token" {
-  description = "Domain verification token for DNS"
-  value       = aws_ses_domain_identity.domain.verification_token
+output "domain_verification_tokens" {
+  description = "Domain verification tokens for DNS (key = domain, value = token)"
+  value       = { for domain, identity in aws_ses_domain_identity.domains : domain => identity.verification_token }
 }
 
 output "dkim_tokens" {
-  description = "DKIM tokens for DNS configuration"
-  value       = aws_ses_domain_dkim.domain_dkim.dkim_tokens
+  description = "DKIM tokens for DNS configuration (key = domain, value = tokens)"
+  value       = { for domain, dkim in aws_ses_domain_dkim.domains_dkim : domain => dkim.dkim_tokens }
 }
 
-output "s3_bucket_name" {
+output "s3_email_bucket_name" {
   description = "S3 bucket name for email storage"
   value       = aws_s3_bucket.email_storage.bucket
+}
+
+output "s3_config_bucket_name" {
+  description = "S3 bucket name for configuration storage (if enabled)"
+  value       = var.enable_dynamic_config ? aws_s3_bucket.config_storage[0].bucket : null
 }
 
 output "lambda_function_name" {
@@ -291,10 +371,26 @@ output "lambda_function_name" {
 
 output "mx_record" {
   description = "MX record to add to your domain DNS"
-  value       = "inbound-smtp.${var.aws_region}.amazonaws.com"
+  value       = "10 inbound-smtp.${var.aws_region}.amazonaws.com"
+}
+
+output "configured_domains" {
+  description = "List of domains being configured"
+  value       = local.all_domains
+}
+
+output "receipt_rule_recipients" {
+  description = "Email patterns configured in SES receipt rule"
+  value       = aws_ses_receipt_rule.email_processor_rule.recipients
+}
+
+# Backward compatibility outputs
+output "domain_verification_token" {
+  description = "Domain verification token for DNS (backward compatibility)"
+  value       = length(local.all_domains) > 0 ? aws_ses_domain_identity.domains[local.all_domains[0]].verification_token : null
 }
 
 output "domain_name" {
-  description = "Domain name being configured"
-  value       = var.domain_name
+  description = "Primary domain name being configured (backward compatibility)"
+  value       = length(local.all_domains) > 0 ? local.all_domains[0] : null
 } 
