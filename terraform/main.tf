@@ -314,9 +314,7 @@ resource "aws_ses_receipt_rule_set" "email_to_http" {
 resource "aws_ses_receipt_rule" "email_processor_rule" {
   name          = "process-emails-multi-domain"
   rule_set_name = aws_ses_receipt_rule_set.email_to_http.rule_set_name
-  recipients    = var.enable_dynamic_config ? 
-    flatten([for domain in local.all_domains : ["*@${domain}"]]) :
-    ["webhook@${var.domain_name}"]
+  recipients    = var.enable_dynamic_config ? flatten([for domain in local.all_domains : ["*@${domain}"]]) : ["webhook@${var.domain_name}"]
   enabled       = true
   scan_enabled  = true
 
